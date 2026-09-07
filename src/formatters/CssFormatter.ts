@@ -243,12 +243,14 @@ function getFilenameFromUrl(sheetUrl: string): string {
   if (parsed.isBlobURL()) {
     return '(blob)';
   }
-  return parsed.displayName || '(inline)';
+  if (parsed.lastPathComponent) {
+    return parsed.lastPathComponent;
+  }
+  return '(index)';
 }
 
 interface StylePositionHeader {
   lineNumberInSource: (line: number) => number;
-  columnNumberInSource: (line: number, column: number) => number | undefined;
 }
 
 function getStyleRangeLocationSuffix(
@@ -256,9 +258,7 @@ function getStyleRangeLocationSuffix(
   range: {startLine: number; startColumn: number},
 ): string {
   const lineNum = header.lineNumberInSource(range.startLine) + 1;
-  const col = header.columnNumberInSource(range.startLine, range.startColumn);
-  const colNum = col !== undefined ? col + 1 : 1;
-  return `:${lineNum}:${colNum}`;
+  return `:${lineNum}`;
 }
 
 /**
@@ -266,8 +266,8 @@ function getStyleRangeLocationSuffix(
  *
  * Checks in precedence order:
  * 1. Special origins: 'user agent stylesheet', 'injected stylesheet', 'via inspector', 'constructed stylesheet'.
- * 2. 1-based source coordinates (line:column) from rule header or style range.
- * 3. File source: `<style>` for inline sheets, or filename for external stylesheets.
+ * 2. 1-based line coordinates from rule header or style range.
+ * 3. File source: `<style>` for inline sheets, `(index)` for root documents, or filename for external stylesheets.
  */
 function getSourceLocation(rule: DevTools.CSSRule.CSSRule): string {
   if (rule.isUserAgent?.()) {
@@ -288,7 +288,7 @@ function getSourceLocation(rule: DevTools.CSSRule.CSSRule): string {
     const col = rule.columnNumberInSource(0);
     if (col !== undefined) {
       const lineNum = rule.lineNumberInSource(0) + 1;
-      locSuffix = `:${lineNum}:${col + 1}`;
+      locSuffix = `:${lineNum}`;
     }
   }
   if (!locSuffix && rule.header && rule.style?.range) {

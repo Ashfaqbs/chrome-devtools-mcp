@@ -48,7 +48,7 @@ exports[`CssFormatter > formats @font-palette-values at-rule with name toJSON 1`
       "atRuleType": "font-palette-values",
       "name": "--my-palette",
       "selector": "@font-palette-values --my-palette",
-      "source": "fonts.css:11:1",
+      "source": "fonts.css:11",
       "properties": [
         {
           "name": "font-family",
@@ -69,7 +69,7 @@ exports[`CssFormatter > formats @font-palette-values at-rule with name toJSON 1`
 exports[`CssFormatter > formats @font-palette-values at-rule with name toString 1`] = `
 Styles for button (uid: "elem-at-1"):
 
-  @font-palette-values --my-palette (fonts.css:11:1) {
+  @font-palette-values --my-palette (fonts.css:11) {
     font-family: Bixa;
     base-palette: 3;
   }
@@ -86,7 +86,7 @@ exports[`CssFormatter > formats @function custom function rule with parameters a
       "type": "function",
       "name": "--double",
       "selector": "@function --double(--x)",
-      "source": "math.css:5:1",
+      "source": "math.css:5",
       "properties": [
         {
           "name": "result",
@@ -102,7 +102,7 @@ exports[`CssFormatter > formats @function custom function rule with parameters a
 exports[`CssFormatter > formats @function custom function rule with parameters and declarations toString 1`] = `
 Styles for button (uid: "elem-func"):
 
-  @function --double(--x) (math.css:5:1) {
+  @function --double(--x) (math.css:5) {
     result: calc(var(--x) * 2);
   }
 `;
@@ -118,11 +118,11 @@ exports[`CssFormatter > formats @keyframes rule with multiple steps and source l
       "type": "keyframes",
       "name": "slideIn",
       "selector": "@keyframes slideIn",
-      "source": "animations.css:11:3",
+      "source": "animations.css:11",
       "keyframes": [
         {
           "keyText": "from",
-          "source": "animations.css:11:3",
+          "source": "animations.css:11",
           "properties": [
             {
               "name": "opacity",
@@ -133,7 +133,7 @@ exports[`CssFormatter > formats @keyframes rule with multiple steps and source l
         },
         {
           "keyText": "to",
-          "source": "animations.css:14:3",
+          "source": "animations.css:14",
           "properties": [
             {
               "name": "opacity",
@@ -151,7 +151,7 @@ exports[`CssFormatter > formats @keyframes rule with multiple steps and source l
 exports[`CssFormatter > formats @keyframes rule with multiple steps and source location toString 1`] = `
 Styles for button (uid: "elem-kf"):
 
-  @keyframes slideIn (animations.css:11:3) {
+  @keyframes slideIn (animations.css:11) {
     from {
       opacity: 0;
     }
@@ -211,7 +211,7 @@ exports[`CssFormatter > formats @property rules defined in stylesheets and progr
       "type": "property",
       "name": "--brand-color",
       "selector": "@property --brand-color",
-      "source": "theme.css:11:1",
+      "source": "theme.css:11",
       "properties": [
         {
           "name": "syntax",
@@ -260,7 +260,7 @@ exports[`CssFormatter > formats @property rules defined in stylesheets and progr
 exports[`CssFormatter > formats @property rules defined in stylesheets and programmatically toString 1`] = `
 Styles for button (uid: "elem-prop"):
 
-  @property --brand-color (theme.css:11:1) {
+  @property --brand-color (theme.css:11) {
     syntax: "<color>";
     inherits: false;
     initial-value: #1a73e8;
@@ -285,7 +285,7 @@ exports[`CssFormatter > formats active and inactive @position-try rules toJSON 1
       "name": "--bottom",
       "active": true,
       "selector": "@position-try --bottom",
-      "source": "anchor.css:21:1",
+      "source": "anchor.css:21",
       "properties": [
         {
           "name": "top",
@@ -299,7 +299,7 @@ exports[`CssFormatter > formats active and inactive @position-try rules toJSON 1
       "name": "--top",
       "active": false,
       "selector": "@position-try --top",
-      "source": "anchor.css:26:1",
+      "source": "anchor.css:26",
       "properties": [
         {
           "name": "bottom",
@@ -315,11 +315,11 @@ exports[`CssFormatter > formats active and inactive @position-try rules toJSON 1
 exports[`CssFormatter > formats active and inactive @position-try rules toString 1`] = `
 Styles for button (uid: "elem-pos"):
 
-  @position-try --bottom (anchor.css:21:1) {
+  @position-try --bottom (anchor.css:21) {
     top: anchor(bottom);
   }
 
-  [inactive] @position-try --top (anchor.css:26:1) {
+  [inactive] @position-try --top (anchor.css:26) {
     bottom: anchor(top);
   }
 `;
@@ -379,7 +379,7 @@ exports[`CssFormatter > formats constructed stylesheets with and without sourceU
     {
       "type": "matched",
       "selector": ".themed-btn",
-      "source": "theme.css:11:6",
+      "source": "theme.css:11",
       "properties": [
         {
           "name": "color",
@@ -399,7 +399,7 @@ Styles for button (uid: "elem-constructed"):
     color: purple;
   }
 
-  .themed-btn (theme.css:11:6) {
+  .themed-btn (theme.css:11) {
     color: orange;
   }
 `;
@@ -497,7 +497,7 @@ exports[`CssFormatter > formats inherited pseudo-elements with ancestor node and
         "selector": "div.container"
       },
       "selector": "div.container::selection",
-      "source": "theme.css:6:2",
+      "source": "theme.css:6",
       "properties": [
         {
           "name": "color",
@@ -550,7 +550,7 @@ Styles for p.paragraph (uid: "para-1"):
   }
 
   /* Pseudo ::selection element (inherited from div.container, uid: "cont-10") */
-  div.container::selection (theme.css:6:2) {
+  div.container::selection (theme.css:6) {
     color: white;
     background-color: navy;
   }
@@ -780,7 +780,7 @@ exports[`CssFormatter > formats mixed inline and matched rules toJSON 1`] = `
     {
       "type": "matched",
       "selector": ".btn",
-      "source": "style.css:6:1",
+      "source": "style.css:6",
       "properties": [
         {
           "name": "font-size",
@@ -800,7 +800,7 @@ Styles for button#btn-id (uid: "1_1"):
     color: red;
   }
 
-  .btn (style.css:6:1) {
+  .btn (style.css:6) {
     font-size: 16px;
   }
 `;
@@ -821,7 +821,7 @@ exports[`CssFormatter > formats nested CSS rules with nesting ancestors toJSON 1
           "selector": ".card"
         }
       ],
-      "source": "styles.css:16:3",
+      "source": "styles.css:16",
       "properties": [
         {
           "name": "color",
@@ -838,7 +838,7 @@ exports[`CssFormatter > formats nested CSS rules with nesting ancestors toString
 Styles for button (uid: "elem-child"):
 
   .card {
-    & .child (styles.css:16:3) {
+    & .child (styles.css:16) {
       color: blue;
     }
   }
@@ -864,7 +864,7 @@ exports[`CssFormatter > formats pseudo-elements with rules and inline pseudo sty
       "matchingSelectors": [
         "button.btn::before"
       ],
-      "source": "styles.css:21:5",
+      "source": "styles.css:21",
       "properties": [
         {
           "name": "content",
@@ -898,7 +898,7 @@ Styles for button (uid: "btn-pseudo"):
 
   /* Pseudo ::before element */
   .btn-group {
-    button.btn::before (styles.css:21:5) {
+    button.btn::before (styles.css:21) {
       content: "→";
       color: blue;
     }
@@ -1068,7 +1068,7 @@ exports[`CssFormatter > rule subsets > matched rules all 3 rules toJSON 1`] = `
     {
       "type": "matched",
       "selector": ".rule-1",
-      "source": "app.css:11:1",
+      "source": "app.css:11",
       "properties": [
         {
           "name": "color",
@@ -1080,7 +1080,7 @@ exports[`CssFormatter > rule subsets > matched rules all 3 rules toJSON 1`] = `
     {
       "type": "matched",
       "selector": ".rule-2",
-      "source": "app.css:21:1",
+      "source": "app.css:21",
       "properties": [
         {
           "name": "color",
@@ -1092,7 +1092,7 @@ exports[`CssFormatter > rule subsets > matched rules all 3 rules toJSON 1`] = `
     {
       "type": "matched",
       "selector": ".rule-3",
-      "source": "app.css:31:1",
+      "source": "app.css:31",
       "properties": [
         {
           "name": "color",
@@ -1108,15 +1108,15 @@ exports[`CssFormatter > rule subsets > matched rules all 3 rules toJSON 1`] = `
 exports[`CssFormatter > rule subsets > matched rules all 3 rules toString 1`] = `
 Styles for button (uid: "btn-1"):
 
-  .rule-1 (app.css:11:1) {
+  .rule-1 (app.css:11) {
     color: red;
   }
 
-  .rule-2 (app.css:21:1) {
+  .rule-2 (app.css:21) {
     color: blue;
   }
 
-  .rule-3 (app.css:31:1) {
+  .rule-3 (app.css:31) {
     color: green;
   }
 `;
@@ -1131,7 +1131,7 @@ exports[`CssFormatter > rule subsets > matched rules subset - first 2 rules toJS
     {
       "type": "matched",
       "selector": ".rule-1",
-      "source": "app.css:11:1",
+      "source": "app.css:11",
       "properties": [
         {
           "name": "color",
@@ -1143,7 +1143,7 @@ exports[`CssFormatter > rule subsets > matched rules subset - first 2 rules toJS
     {
       "type": "matched",
       "selector": ".rule-2",
-      "source": "app.css:21:1",
+      "source": "app.css:21",
       "properties": [
         {
           "name": "color",
@@ -1159,11 +1159,11 @@ exports[`CssFormatter > rule subsets > matched rules subset - first 2 rules toJS
 exports[`CssFormatter > rule subsets > matched rules subset - first 2 rules toString 1`] = `
 Styles for button (uid: "btn-1"):
 
-  .rule-1 (app.css:11:1) {
+  .rule-1 (app.css:11) {
     color: red;
   }
 
-  .rule-2 (app.css:21:1) {
+  .rule-2 (app.css:21) {
     color: blue;
   }
 `;
@@ -1178,7 +1178,7 @@ exports[`CssFormatter > rule subsets > matched rules subset - last rule toJSON 1
     {
       "type": "matched",
       "selector": ".rule-3",
-      "source": "app.css:31:1",
+      "source": "app.css:31",
       "properties": [
         {
           "name": "color",
@@ -1194,7 +1194,7 @@ exports[`CssFormatter > rule subsets > matched rules subset - last rule toJSON 1
 exports[`CssFormatter > rule subsets > matched rules subset - last rule toString 1`] = `
 Styles for button (uid: "btn-1"):
 
-  .rule-3 (app.css:31:1) {
+  .rule-3 (app.css:31) {
     color: green;
   }
 `;
