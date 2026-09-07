@@ -176,7 +176,7 @@ export interface Response {
   ): void;
   setIncludeCssStyles(
     matchedStyles: MatchedStyles,
-    options: CssFormatterOptions,
+    options: CssFormatterOptions & PaginationOptions,
   ): void;
   includeSnapshot(params?: SnapshotParams): void;
   attachImage(value: ImageContentData): void;

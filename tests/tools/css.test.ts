@@ -39,7 +39,11 @@ async function getUidForNode(
 
 async function fetchStyles(
   context: McpContext,
-  params: {uid: string; pageSize?: number; pageIdx?: number},
+  params: {
+    uid: string;
+    pageSize?: number;
+    pageIdx?: number;
+  },
 ) {
   const mcpPage = context.getSelectedMcpPage();
   const response = new McpResponse(parseArguments('1.0.0', []));
@@ -199,9 +203,9 @@ describe('css', () => {
       const {output} = await fetchStyles(context, {uid});
       assertIncludes(
         output,
-        '::before {',
+        '.tooltip::before',
         'color: gold;',
-        '::after {',
+        '.tooltip::after',
         'font-size: 12px;',
       );
     });
@@ -407,7 +411,7 @@ describe('css', () => {
     });
   });
 
-  it('retrieves nested CSS rules with resolvedSelector', async () => {
+  it('retrieves nested CSS rules with nesting ancestors', async () => {
     server.addHtmlRoute(
       '/nested_css_test.html',
       html`
@@ -431,17 +435,16 @@ describe('css', () => {
       const {output, structuredContent} = await fetchStyles(context, {uid});
       assertIncludes(
         output,
-        '/* resolved: :is(.card-container) .nested-btn */',
+        '.card-container {',
         '& .nested-btn',
         'color: rgb(220, 20, 60);',
       );
 
       const matchedRule = findMatchedRule(structuredContent);
       assert.strictEqual(matchedRule.selector, '& .nested-btn');
-      assert.strictEqual(
-        matchedRule.resolvedSelector,
-        ':is(.card-container) .nested-btn',
-      );
+      assert.deepStrictEqual(matchedRule.ancestors, [
+        {type: 'nesting', selector: '.card-container'},
+      ]);
     });
   });
 
@@ -473,6 +476,37 @@ describe('css', () => {
 
       const matchedRule = findMatchedRule(structuredContent);
       assert.strictEqual(matchedRule.source, 'constructed stylesheet');
+    });
+  });
+
+  it('retrieves @layer styles', async () => {
+    server.addHtmlRoute(
+      '/layer_test.html',
+      html`
+        <style>
+          @layer base {
+            button.layered {
+              background-color: green;
+            }
+          }
+        </style>
+        <button class="layered">Layered Button</button>
+      `,
+    );
+
+    await withMcpContext(async (_, context) => {
+      await openPage(context, '/layer_test.html');
+      const uid = await getUidForNode(context, 'Layered Button');
+      const {output, structuredContent} = await fetchStyles(context, {uid});
+      assertIncludes(
+        output,
+        '@layer base {',
+        'button.layered',
+        'background-color: green;',
+      );
+
+      const matchedRule = findMatchedRule(structuredContent);
+      assert.strictEqual(matchedRule.ancestors?.[0]?.type, 'layer');
     });
   });
 });

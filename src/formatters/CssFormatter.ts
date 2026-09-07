@@ -6,13 +6,68 @@
 
 import {DevTools} from '../third_party/index.js';
 import type {MatchedStyles} from '../tools/ToolDefinition.js';
-import type {PaginationOptions} from '../types.js';
 
-export interface CssFormatterOptions extends PaginationOptions {
+export type UidResolver = (backendNodeId: number) => string | undefined;
+
+export interface CssFormatterOptions {
   uid: string;
+  resolveUid?: UidResolver;
+  containerDetails?: Map<ContainerQuery, ResolvedContainerDetails>;
 }
 
-export type CssPropertyStatus = 'active' | 'overloaded' | 'inactive';
+/**
+ * Status of a CSS property in the cascade:
+ * - `active`: Winning declaration for this property name (printed without prefix tag).
+ * - `overloaded`: Overridden by a more specific or later CSS rule (`[overloaded]`).
+ * - `invalid`: Property name or value failed CSS parsing (`[invalid]`).
+ * - `disabled`: Commented out or programmatically disabled (`[disabled]`).
+ */
+export type CssPropertyStatus =
+  'active' | 'overloaded' | 'invalid' | 'disabled';
+export type ContainerQuery =
+  DevTools.CSSRule.CSSStyleRule['containerQueries'][number];
+
+export interface ResolvedContainerDetails {
+  container?: {
+    uid?: string;
+    selector: string;
+  };
+}
+
+export type AncestorCSSRule =
+  | {
+      type: 'layer';
+      name?: string;
+    }
+  | {
+      type: 'media' | 'supports' | 'navigation';
+      query: string;
+    }
+  | {
+      type: 'scope';
+      query?: string;
+    }
+  | {
+      type: 'container';
+      query: string;
+      name?: string;
+      container?: {
+        uid?: string;
+        selector: string;
+      };
+    }
+  | {
+      type: 'starting-style';
+    }
+  | {
+      type: 'nesting';
+      selector: string;
+    }
+  | {
+      type: 'at-rule';
+      atRuleType: string;
+      name?: string;
+    };
 
 export interface StructuredCssProperty {
   name: string;
@@ -21,39 +76,118 @@ export interface StructuredCssProperty {
   important?: boolean;
 }
 
-export interface InlineRule {
-  type: 'inline';
+export interface NodeStyleRule {
+  type: 'inline' | 'attributes' | 'transition';
+  selector: string;
+  properties: StructuredCssProperty[];
+}
+
+export interface AnimationRule {
+  type: 'animation';
+  name?: string;
+  selector: string;
   properties: StructuredCssProperty[];
 }
 
 export interface MatchedRule {
   type: 'matched';
   selector: string;
-  resolvedSelector?: string;
   matchingSelectors?: string[];
   source?: string;
   isUserAgent?: boolean;
+  ancestors?: AncestorCSSRule[];
   properties: StructuredCssProperty[];
 }
 
 export interface InheritedRule {
   type: 'inherited';
   node: {
+    uid?: string;
     selector: string;
   };
   selector?: string;
-  resolvedSelector?: string;
+  matchingSelectors?: string[];
+  source?: string;
+  ancestors?: AncestorCSSRule[];
   properties: StructuredCssProperty[];
 }
 
 export interface PseudoElementRule {
   type: 'pseudo';
   pseudoType: string;
+  node?: {
+    uid?: string;
+    selector: string;
+  };
+  selector?: string;
+  matchingSelectors?: string[];
+  source?: string;
+  ancestors?: AncestorCSSRule[];
+  properties: StructuredCssProperty[];
+}
+
+export interface AtRule {
+  type: 'at-rule';
+  atRuleType: string;
+  name?: string;
+  subsection?: string;
+  selector: string;
+  source?: string;
+  ancestors?: AncestorCSSRule[];
+  properties: StructuredCssProperty[];
+}
+
+export interface KeyframeStep {
+  keyText: string;
+  source?: string;
+  properties: StructuredCssProperty[];
+}
+
+export interface KeyframesRule {
+  type: 'keyframes';
+  name: string;
+  selector: string;
+  source?: string;
+  keyframes: KeyframeStep[];
+}
+
+export interface PositionTryRule {
+  type: 'position-try';
+  name: string;
+  active: boolean;
+  selector: string;
+  source?: string;
+  ancestors?: AncestorCSSRule[];
+  properties: StructuredCssProperty[];
+}
+
+export interface PropertyRule {
+  type: 'property';
+  name: string;
+  selector: string;
+  source?: string;
+  properties: StructuredCssProperty[];
+}
+
+export interface FunctionRule {
+  type: 'function';
+  name: string;
+  selector: string;
+  source?: string;
   properties: StructuredCssProperty[];
 }
 
 export type CascadeRule =
-  InlineRule | MatchedRule | InheritedRule | PseudoElementRule;
+  | NodeStyleRule
+  | AnimationRule
+  | MatchedRule
+  | InheritedRule
+  | PseudoElementRule
+  | AtRule
+  | KeyframesRule
+  | PositionTryRule
+  | PropertyRule
+  | FunctionRule;
 
 export interface StructuredCssStyles {
   element: {
@@ -68,6 +202,39 @@ const PROPERTY_STATE_MAP: Record<string, CssPropertyStatus> = {
   [DevTools.CSSMatchedStyles.PropertyState.OVERLOADED]: 'overloaded',
 };
 
+class IndentedWriter {
+  readonly #lines: string[] = [];
+  #indent = 0;
+
+  constructor(baseIndent = 0) {
+    this.#indent = baseIndent;
+  }
+
+  indent(): void {
+    this.#indent += 2;
+  }
+
+  dedent(): void {
+    this.#indent = Math.max(0, this.#indent - 2);
+  }
+
+  writeLine(text: string): void {
+    this.#lines.push(' '.repeat(this.#indent) + text);
+  }
+
+  writeEmptyLine(): void {
+    this.#lines.push('');
+  }
+
+  writeComment(comment: string): void {
+    this.writeLine(`/* ${comment} */`);
+  }
+
+  lines(): string[] {
+    return this.#lines;
+  }
+}
+
 function getFilenameFromUrl(sheetUrl: string): string {
   const parsed = new DevTools.Common.ParsedURL.ParsedURL(sheetUrl);
   if (parsed.isDataURL()) {
@@ -76,40 +243,71 @@ function getFilenameFromUrl(sheetUrl: string): string {
   if (parsed.isBlobURL()) {
     return '(blob)';
   }
-  return parsed.lastPathComponent || '(inline)';
+  return parsed.displayName || '(inline)';
 }
 
-function getSourceLocation(rule: DevTools.CSSRule.CSSStyleRule): string {
-  // 1. Check special stylesheet origins first
-  if (rule.isUserAgent()) {
+interface StylePositionHeader {
+  lineNumberInSource: (line: number) => number;
+  columnNumberInSource: (line: number, column: number) => number | undefined;
+}
+
+function getStyleRangeLocationSuffix(
+  header: StylePositionHeader,
+  range: {startLine: number; startColumn: number},
+): string {
+  const lineNum = header.lineNumberInSource(range.startLine) + 1;
+  const col = header.columnNumberInSource(range.startLine, range.startColumn);
+  const colNum = col !== undefined ? col + 1 : 1;
+  return `:${lineNum}:${colNum}`;
+}
+
+/**
+ * Resolves the human-readable source location
+ *
+ * Checks in precedence order:
+ * 1. Special origins: 'user agent stylesheet', 'injected stylesheet', 'via inspector', 'constructed stylesheet'.
+ * 2. 1-based source coordinates (line:column) from rule header or style range.
+ * 3. File source: `<style>` for inline sheets, or filename for external stylesheets.
+ */
+function getSourceLocation(rule: DevTools.CSSRule.CSSRule): string {
+  if (rule.isUserAgent?.()) {
     return 'user agent stylesheet';
   }
-  if (rule.isInjected()) {
+  if (rule.isInjected?.()) {
     return 'injected stylesheet';
   }
-  if (rule.isViaInspector()) {
+  if (rule.isViaInspector?.()) {
     return 'via inspector';
   }
-  if (rule.header?.isConstructedByNew()) {
+  if (rule.header?.isConstructedByNew?.() && !rule.sourceURL) {
     return 'constructed stylesheet';
   }
 
-  // 2. Compute 1-based source coordinates
-  const lineNum = rule.lineNumberInSource(0) + 1;
-  const col = rule.columnNumberInSource(0);
-  const colNum = col !== undefined ? col + 1 : 1;
-  const locSuffix = `:${lineNum}:${colNum}`;
+  let locSuffix = '';
+  if (rule instanceof DevTools.CSSRule.CSSStyleRule) {
+    const col = rule.columnNumberInSource(0);
+    if (col !== undefined) {
+      const lineNum = rule.lineNumberInSource(0) + 1;
+      locSuffix = `:${lineNum}:${col + 1}`;
+    }
+  }
+  if (!locSuffix && rule.header && rule.style?.range) {
+    locSuffix = getStyleRangeLocationSuffix(rule.header, rule.style.range);
+  }
 
-  // 3. Inline <style> tags
   const sheetUrl = rule.sourceURL;
   if (!sheetUrl) {
     return `<style>${locSuffix}`;
   }
 
-  // 4. External stylesheets
   return `${getFilenameFromUrl(sheetUrl)}${locSuffix}`;
 }
 
+/**
+ * Returns the subset of selectors in a comma-separated selector group that
+ * actually matched the target element. Returns undefined if single selector
+ * or no filter is available.
+ */
 function getMatchingSelectors(
   matchedStyles: MatchedStyles,
   rule: DevTools.CSSRule.CSSStyleRule,
@@ -117,139 +315,833 @@ function getMatchingSelectors(
   if (!rule.selectors || rule.selectors.length <= 1) {
     return undefined;
   }
-  if (typeof matchedStyles.getMatchingSelectors !== 'function') {
-    return undefined;
-  }
-  const indexes = matchedStyles.getMatchingSelectors(rule);
+  const indexes = matchedStyles.getMatchingSelectors?.(rule);
   if (!indexes || indexes.length === 0) {
     return undefined;
   }
-  const matching = rule.selectors
-    .filter((_, idx) => indexes.includes(idx))
-    .map(s => s.text);
+  const indexSet = new Set(indexes);
+  const matching: string[] = [];
+  for (const [idx, sel] of rule.selectors.entries()) {
+    if (indexSet.has(idx)) {
+      matching.push(sel.text);
+    }
+  }
   return matching.length > 0 ? matching : undefined;
 }
 
-function constructResolvedSelector(
-  rule: DevTools.CSSRule.CSSStyleRule,
-  nestingIndex?: number,
-): string | undefined {
-  const nestingSelectors = rule.nestingSelectors;
-  if (!nestingSelectors || nestingSelectors.length === 0) {
-    return nestingIndex === undefined ? rule.selectorText() : undefined;
+function createLayerAncestor(layer?: {
+  text?: string;
+}): AncestorCSSRule | undefined {
+  if (!layer) {
+    return undefined;
   }
+  return {type: 'layer', ...(layer.text ? {name: layer.text} : {})};
+}
 
-  if (nestingIndex !== undefined && (nestingIndex < 0 || nestingIndex >= nestingSelectors.length)) {
+function createQueryAncestor(
+  type: 'media' | 'scope' | 'supports' | 'navigation',
+  query?: {text?: string},
+): AncestorCSSRule | undefined {
+  if (!query) {
+    return undefined;
+  }
+  if (type === 'scope') {
+    return {type, ...(query.text ? {query: query.text} : {})};
+  }
+  return query.text ? {type, query: query.text} : undefined;
+}
+
+function createContainerQueryAncestor(
+  containerQuery?: ContainerQuery,
+  containerDetails?: Map<ContainerQuery, ResolvedContainerDetails>,
+): AncestorCSSRule | undefined {
+  if (!containerQuery) {
+    return undefined;
+  }
+  const details = containerDetails?.get(containerQuery);
+  return {
+    type: 'container',
+    query: containerQuery.text ?? '',
+    ...(containerQuery.name ? {name: containerQuery.name} : {}),
+    ...(details?.container ? {container: details.container} : {}),
+  };
+}
+
+/**
+ * Collects enclosing ancestor rules (@media, @container, @supports, @layer,
+ * @scope, @starting-style, @navigation, and CSS nesting) for a style rule.
+ */
+function collectAncestorRules(
+  rule: DevTools.CSSRule.CSSStyleRule,
+  containerDetails?: Map<ContainerQuery, ResolvedContainerDetails>,
+): AncestorCSSRule[] | undefined {
+  if (!rule.ruleTypes || rule.ruleTypes.length === 0) {
     return undefined;
   }
 
-  const selectorText = nestingIndex !== undefined ? nestingSelectors[nestingIndex] : rule.selectorText();
+  let mediaIndex = 0;
+  let containerIndex = 0;
+  let scopeIndex = 0;
+  let supportsIndex = 0;
+  let nestingIndex = 0;
+  let layerIndex = 0;
+  let navigationsIndex = 0;
 
-  const parentIndex = nestingIndex !== undefined ? nestingIndex + 1 : 0;
-  const parentSelector = constructResolvedSelector(rule, parentIndex);
+  const ancestors: AncestorCSSRule[] = [];
 
-  if (!parentSelector) {
-    return selectorText;
-  }
-
-  const sanitizedParent = parentSelector.replace(/::[a-zA-Z-]+/g, '').trim();
-
-  if (selectorText?.includes('&')) {
-    return selectorText.replaceAll('&', `:is(${sanitizedParent})`);
-  }
-
-  return `:is(${sanitizedParent}) ${selectorText?.trim() ?? ''}`;
-}
-
-function getResolvedSelector(
-  rule: DevTools.CSSRule.CSSStyleRule,
-): string | undefined {
-  if (!rule.nestingSelectors || rule.nestingSelectors.length === 0) {
-    return undefined;
-  }
-  return constructResolvedSelector(rule);
-}
-
-function formatPropertyLine(prop: StructuredCssProperty, indent = 4): string {
-  const stateStr =
-    prop.status === 'active'
-      ? '[active] '
-      : prop.status === 'overloaded'
-        ? '[overloaded] '
-        : '';
-  const imp = prop.important ? ' !important' : '';
-  const spaces = ' '.repeat(indent);
-  return `${spaces}${stateStr}${prop.name}: ${prop.value}${imp};`;
-}
-
-function isPropertyInherited(
-  name: string,
-  matchedStyles: MatchedStyles,
-): boolean {
-  if (name.startsWith('--')) {
-    const registered = matchedStyles.getRegisteredProperty?.(name);
-    if (registered) {
-      return registered.inherits();
+  for (const ruleType of rule.ruleTypes) {
+    let item: AncestorCSSRule | undefined;
+    switch (ruleType) {
+      case DevTools.Protocol.CSS.CSSRuleType.MediaRule:
+        item = createQueryAncestor('media', rule.media?.[mediaIndex++]);
+        break;
+      case DevTools.Protocol.CSS.CSSRuleType.ContainerRule:
+        item = createContainerQueryAncestor(
+          rule.containerQueries?.[containerIndex++],
+          containerDetails,
+        );
+        break;
+      case DevTools.Protocol.CSS.CSSRuleType.LayerRule:
+        item = createLayerAncestor(rule.layers?.[layerIndex++]);
+        break;
+      case DevTools.Protocol.CSS.CSSRuleType.ScopeRule:
+        item = createQueryAncestor('scope', rule.scopes?.[scopeIndex++]);
+        break;
+      case DevTools.Protocol.CSS.CSSRuleType.SupportsRule:
+        item = createQueryAncestor(
+          'supports',
+          rule.supports?.[supportsIndex++],
+        );
+        break;
+      case DevTools.Protocol.CSS.CSSRuleType.StartingStyleRule:
+        item = {type: 'starting-style'};
+        break;
+      case DevTools.Protocol.CSS.CSSRuleType.StyleRule: {
+        const selector = rule.nestingSelectors?.[nestingIndex++];
+        if (selector) {
+          item = {type: 'nesting', selector};
+        }
+        break;
+      }
+      case DevTools.Protocol.CSS.CSSRuleType.NavigationRule:
+        item = createQueryAncestor(
+          'navigation',
+          rule.navigations?.[navigationsIndex++],
+        );
+        break;
+    }
+    if (item) {
+      ancestors.push(item);
     }
   }
-  return DevTools.CSSMetadata.cssMetadata().isPropertyInherited(name);
+
+  ancestors.reverse();
+  return ancestors.length > 0 ? ancestors : undefined;
 }
 
-function appendRuleBlock(
-  lines: string[],
-  header: string,
-  properties: StructuredCssProperty[],
-  indent = 2,
-  precedingComment?: string,
+interface RuleMetadata {
+  ancestors?: AncestorCSSRule[];
+  matchingSelectors?: string[];
+  source?: string;
+}
+
+/**
+ * Extracts common metadata (`ancestors`, `matchingSelectors`, `source`)
+ * uniformly across matched rules, inherited rules, and pseudo-element rules.
+ */
+function getRuleMetadata(
+  rule: DevTools.CSSRule.CSSStyleRule | undefined,
+  matchedStyles: MatchedStyles,
+  containerDetails?: Map<ContainerQuery, ResolvedContainerDetails>,
+): RuleMetadata {
+  if (!rule) {
+    return {};
+  }
+  const matchingSelectors = getMatchingSelectors(matchedStyles, rule);
+  const ancestors = collectAncestorRules(rule, containerDetails);
+  const source = getSourceLocation(rule);
+  return {
+    ...(ancestors ? {ancestors} : {}),
+    ...(matchingSelectors ? {matchingSelectors} : {}),
+    ...(source ? {source} : {}),
+  };
+}
+
+/**
+ * Formats a CSS property into standard CSS syntax with optional status tags.
+ *
+ * Status prefix convention:
+ * - 'active': Clean output without tags (e.g. `color: red;`).
+ * - 'overloaded' | 'invalid' | 'disabled': Tagged prefix (e.g. `[overloaded] color: blue;`).
+ */
+function formatPropertyLine(prop: StructuredCssProperty): string {
+  const stateStr = prop.status === 'active' ? '' : `[${prop.status}] `;
+  const imp =
+    prop.important && !/\s*!\s*important$/i.test(prop.value)
+      ? ' !important'
+      : '';
+  return `${stateStr}${prop.name}: ${prop.value}${imp};`;
+}
+
+/**
+ * Filters properties to only those that can be inherited from an ancestor element.
+ *
+ * For highlight pseudo-elements, custom properties (`--*`) are not inherited.
+ * For other CSS custom properties, check registered @property inheritance
+ * rules if available.
+ * For all remaining properties, use standard CSSMetadata inheritance check.
+ */
+function getInheritableProperties(
+  properties: DevTools.CSSProperty.CSSProperty[],
+  matchedStyles: MatchedStyles,
+  isHighlight = false,
+): DevTools.CSSProperty.CSSProperty[] {
+  return properties.filter(prop => {
+    if (isHighlight) {
+      return !DevTools.CSSMetadata.cssMetadata().isCustomProperty(prop.name);
+    }
+    if (DevTools.CSSMetadata.cssMetadata().isCustomProperty(prop.name)) {
+      const registered = matchedStyles.getRegisteredProperty?.(prop.name);
+      if (registered) {
+        return registered.inherits();
+      }
+    }
+    return DevTools.CSSMetadata.cssMetadata().isPropertyInherited(prop.name);
+  });
+}
+
+/**
+ * Resolves DOM ancestor node details when a style declaration is inherited.
+ */
+function getParentNodeInfo(
+  style: DevTools.CSSStyleDeclaration.CSSStyleDeclaration,
+  matchedStyles: MatchedStyles,
+  resolveUid?: UidResolver,
+): {uid?: string; selector: string} | undefined {
+  if (!matchedStyles.isInherited?.(style)) {
+    return undefined;
+  }
+  const parentNode = matchedStyles.nodeForStyle?.(style);
+  if (!parentNode) {
+    return undefined;
+  }
+  const parentUid = resolveUid?.(parentNode.backendNodeId());
+  return {
+    ...(parentUid ? {uid: parentUid} : {}),
+    selector: parentNode.simpleSelector(),
+  };
+}
+
+function getCascadeRuleHeader(rule: CascadeRule): string {
+  let selector: string;
+  switch (rule.type) {
+    case 'inline':
+    case 'transition':
+    case 'animation':
+    case 'attributes':
+    case 'matched':
+    case 'at-rule':
+    case 'keyframes':
+    case 'property':
+    case 'function':
+      selector = rule.selector;
+      break;
+    case 'position-try': {
+      const statePrefix = rule.active ? '' : '[inactive] ';
+      selector = `${statePrefix}${rule.selector}`;
+      break;
+    }
+    case 'inherited':
+      selector = rule.selector ?? 'element.style';
+      break;
+    case 'pseudo':
+      selector = rule.selector ?? rule.pseudoType;
+      break;
+  }
+  const source = 'source' in rule ? rule.source : undefined;
+  return source ? `${selector} (${source})` : selector;
+}
+
+function formatAncestorRuleHeader(ancestor: AncestorCSSRule): {
+  comment?: string;
+  header: string;
+} {
+  switch (ancestor.type) {
+    case 'layer':
+      return {header: ancestor.name ? `@layer ${ancestor.name}` : '@layer'};
+    case 'media':
+      return {header: `@media ${ancestor.query}`};
+    case 'container': {
+      let comment: string | undefined;
+      if (ancestor.container?.selector) {
+        comment = ancestor.container.selector;
+      }
+      if (ancestor.container?.uid) {
+        const uidStr = `(uid: "${ancestor.container.uid}")`;
+        comment = comment ? `${comment} ${uidStr}` : uidStr;
+      }
+      if (comment) {
+        comment = `container: ${comment}`;
+      }
+      const shouldPrependName =
+        ancestor.name && !ancestor.query.startsWith(ancestor.name);
+      const nameStr = shouldPrependName ? `${ancestor.name} ` : '';
+      return {comment, header: `@container ${nameStr}${ancestor.query}`};
+    }
+    case 'scope': {
+      const queryStr = ancestor.query?.trim();
+      return {header: queryStr ? `@scope ${queryStr}` : '@scope'};
+    }
+    case 'supports':
+      return {header: `@supports ${ancestor.query}`};
+    case 'starting-style':
+      return {header: '@starting-style'};
+    case 'nesting':
+      return {header: ancestor.selector};
+    case 'navigation':
+      return {header: `@navigation ${ancestor.query}`};
+    case 'at-rule': {
+      const nameStr = ancestor.name ? ` ${ancestor.name}` : '';
+      return {header: `@${ancestor.atRuleType}${nameStr}`};
+    }
+  }
+}
+
+function appendKeyframesRule(
+  writer: IndentedWriter,
+  rule: KeyframesRule,
 ): void {
-  const outer = ' '.repeat(indent);
-  if (precedingComment) {
-    lines.push(`${outer}/* ${precedingComment} */`);
+  const header = getCascadeRuleHeader(rule);
+  writer.writeLine(`${header} {`);
+  writer.indent();
+  for (const step of rule.keyframes) {
+    writer.writeLine(`${step.keyText} {`);
+    writer.indent();
+    for (const prop of step.properties) {
+      writer.writeLine(formatPropertyLine(prop));
+    }
+    writer.dedent();
+    writer.writeLine('}');
   }
-  lines.push(`${outer}${header} {`);
-  for (const prop of properties) {
-    lines.push(formatPropertyLine(prop, indent + 2));
+  writer.dedent();
+  writer.writeLine('}');
+}
+
+function appendRuleWithAncestors(
+  writer: IndentedWriter,
+  rule: Exclude<CascadeRule, KeyframesRule>,
+): void {
+  const ancestors = 'ancestors' in rule ? rule.ancestors : undefined;
+  let ancestorCount = 0;
+
+  if (ancestors && ancestors.length > 0) {
+    for (const ancestor of ancestors) {
+      const {comment, header} = formatAncestorRuleHeader(ancestor);
+      if (comment) {
+        writer.writeComment(comment);
+      }
+      writer.writeLine(`${header} {`);
+      writer.indent();
+      ancestorCount++;
+    }
   }
-  lines.push(`${outer}}`);
+
+  const header = getCascadeRuleHeader(rule);
+  writer.writeLine(`${header} {`);
+  writer.indent();
+  for (const prop of rule.properties) {
+    writer.writeLine(formatPropertyLine(prop));
+  }
+  writer.dedent();
+  writer.writeLine('}');
+
+  for (let i = 0; i < ancestorCount; i++) {
+    writer.dedent();
+    writer.writeLine('}');
+  }
 }
 
 function appendCssSectionsToString(
-  lines: string[],
+  writer: IndentedWriter,
   styles: StructuredCssStyles,
 ): void {
-  let lastInheritedSelector: string | null = null;
-
   for (const rule of styles.rules) {
-    lines.push('');
-    switch (rule.type) {
-      case 'inline': {
-        appendRuleBlock(lines, 'element.style', rule.properties);
-        break;
+    writer.writeEmptyLine();
+    if (rule.type === 'inherited') {
+      const uidStr = rule.node.uid ? ` (uid: "${rule.node.uid}")` : '';
+      writer.writeLine(`Inherited from ${rule.node.selector}${uidStr}:`);
+      writer.indent();
+      appendRuleWithAncestors(writer, rule);
+      writer.dedent();
+    } else if (rule.type === 'pseudo') {
+      let inheritedStr = '';
+      if (rule.node) {
+        const uidPart = rule.node.uid ? `, uid: "${rule.node.uid}"` : '';
+        inheritedStr = ` (inherited from ${rule.node.selector}${uidPart})`;
       }
-      case 'matched': {
-        const sourceLoc = rule.source ? ` (${rule.source})` : '';
-        const comment = rule.resolvedSelector ?? `resolved: ${rule.resolvedSelector}`;
-        appendRuleBlock(lines, `${rule.selector}${sourceLoc}`, rule.properties, 2, comment);
-        break;
-      }
-      case 'inherited': {
-        if (lastInheritedSelector !== rule.node.selector) {
-          lastInheritedSelector = rule.node.selector;
-          lines.push(`  Inherited from ${rule.node.selector}:`);
-        }
-        const comment = rule.resolvedSelector ?? `resolved: ${rule.resolvedSelector}`;
-        appendRuleBlock(lines, rule.selector ?? 'element.style', rule.properties, 4, comment);
-        break;
-      }
-      case 'pseudo': {
-        appendRuleBlock(lines, rule.pseudoType, rule.properties);
-        break;
-      }
+      writer.writeComment(`Pseudo ${rule.pseudoType} element${inheritedStr}`);
+      appendRuleWithAncestors(writer, rule);
+    } else if (rule.type === 'keyframes') {
+      appendKeyframesRule(writer, rule);
+    } else {
+      appendRuleWithAncestors(writer, rule);
     }
   }
 }
 
 export class CssFormatter {
+  static #getStyleProperties(
+    style: DevTools.CSSStyleDeclaration.CSSStyleDeclaration,
+  ): DevTools.CSSProperty.CSSProperty[] {
+    return style.leadingProperties?.() ?? style.allProperties();
+  }
+
+  /**
+   * Aggregates all cascading rules impacting the target node.
+   */
+  static collectRules(
+    matchedStyles: MatchedStyles,
+    options: CssFormatterOptions,
+  ): CascadeRule[] {
+    const rules: CascadeRule[] = [];
+    CssFormatter.#collectNodeStyles(rules, matchedStyles, options);
+    CssFormatter.#collectPseudoStyles(rules, matchedStyles, options);
+    CssFormatter.#collectKeyframes(rules, matchedStyles);
+    CssFormatter.#collectAtRules(rules, matchedStyles);
+    CssFormatter.#collectPositionTryRules(rules, matchedStyles);
+    CssFormatter.#collectRegisteredProperties(rules, matchedStyles);
+    CssFormatter.#collectFunctionRules(rules, matchedStyles);
+    return rules;
+  }
+
+  static #collectNodeStyles(
+    rules: CascadeRule[],
+    matchedStyles: MatchedStyles,
+    options: CssFormatterOptions,
+  ): void {
+    for (const style of matchedStyles.nodeStyles?.() ?? []) {
+      const properties = CssFormatter.#getStyleProperties(style);
+      if (!properties.length) {
+        continue;
+      }
+
+      if (matchedStyles.isInherited(style)) {
+        const inheritedRule = CssFormatter.#createInheritedRule(
+          style,
+          properties,
+          matchedStyles,
+          options,
+        );
+        if (inheritedRule) {
+          rules.push(inheritedRule);
+        }
+        continue;
+      }
+
+      if (style.type === DevTools.CSSStyleDeclaration.Type.Transition) {
+        rules.push({
+          type: 'transition',
+          selector: 'transitions style',
+          properties: CssFormatter.#formatProperties(properties, matchedStyles),
+        });
+      } else if (style.type === DevTools.CSSStyleDeclaration.Type.Animation) {
+        const animName = style.animationName();
+        rules.push({
+          type: 'animation',
+          ...(animName ? {name: animName} : {}),
+          selector: animName ? `${animName} animation` : 'animation style',
+          properties: CssFormatter.#formatProperties(properties, matchedStyles),
+        });
+      } else if (style.type === DevTools.CSSStyleDeclaration.Type.Attributes) {
+        const node = matchedStyles.nodeForStyle(style);
+        const tag = node ? node.nodeNameInCorrectCase() : '';
+        rules.push({
+          type: 'attributes',
+          selector: tag ? `${tag}[attributes style]` : '[attributes style]',
+          properties: CssFormatter.#formatProperties(properties, matchedStyles),
+        });
+      } else if (style.type === DevTools.CSSStyleDeclaration.Type.Inline) {
+        rules.push({
+          type: 'inline',
+          selector: 'element.style',
+          properties: CssFormatter.#formatProperties(properties, matchedStyles),
+        });
+      } else if (style.parentRule instanceof DevTools.CSSRule.CSSStyleRule) {
+        rules.push(
+          CssFormatter.#createMatchedRule(
+            style.parentRule,
+            properties,
+            matchedStyles,
+            options,
+          ),
+        );
+      }
+    }
+  }
+
+  static #collectAtRules(
+    rules: CascadeRule[],
+    matchedStyles: MatchedStyles,
+  ): void {
+    const atRules = matchedStyles.atRules?.() ?? [];
+    for (const atRule of atRules) {
+      const properties = CssFormatter.#getStyleProperties(atRule.style);
+      if (!properties.length) {
+        continue;
+      }
+      const subsection = atRule.subsection() ?? undefined;
+      const name = atRule.name()?.text;
+      const type = atRule.type();
+      const selector = subsection
+        ? `@${subsection}`
+        : name
+          ? `@${type} ${name}`
+          : `@${type}`;
+
+      const ancestors: AncestorCSSRule[] = [];
+      if (subsection) {
+        ancestors.push({
+          type: 'at-rule',
+          atRuleType: type,
+          ...(name ? {name} : {}),
+        });
+      }
+
+      rules.push({
+        type: 'at-rule',
+        atRuleType: type,
+        ...(name ? {name} : {}),
+        ...(subsection ? {subsection} : {}),
+        selector,
+        ...(ancestors.length > 0 ? {ancestors} : {}),
+        source: getSourceLocation(atRule),
+        properties: CssFormatter.#formatProperties(properties, matchedStyles),
+      });
+    }
+  }
+
+  static #collectKeyframes(
+    rules: CascadeRule[],
+    matchedStyles: MatchedStyles,
+  ): void {
+    const keyframesRules = matchedStyles.keyframes?.() ?? [];
+    for (const keyframesRule of keyframesRules) {
+      const name = keyframesRule.name?.().text ?? '';
+      const rawKeyframes = keyframesRule.keyframes?.() ?? [];
+
+      const steps: KeyframeStep[] = [];
+      let parentSource: string | undefined;
+
+      for (const keyframe of rawKeyframes) {
+        const properties = CssFormatter.#getStyleProperties(keyframe.style);
+        if (!properties.length) {
+          continue;
+        }
+        const keyText = keyframe.key?.().text ?? '';
+        const source = getSourceLocation(keyframe);
+        if (!parentSource && source) {
+          parentSource = source;
+        }
+
+        steps.push({
+          keyText,
+          ...(source ? {source} : {}),
+          properties: CssFormatter.#formatProperties(properties, matchedStyles),
+        });
+      }
+
+      if (!steps.length) {
+        continue;
+      }
+
+      rules.push({
+        type: 'keyframes',
+        name,
+        selector: `@keyframes ${name}`,
+        ...(parentSource ? {source: parentSource} : {}),
+        keyframes: steps,
+      });
+    }
+  }
+
+  static #collectPositionTryRules(
+    rules: CascadeRule[],
+    matchedStyles: MatchedStyles,
+  ): void {
+    const positionTryRules = matchedStyles.positionTryRules?.() ?? [];
+    for (const positionTryRule of positionTryRules) {
+      const properties = CssFormatter.#getStyleProperties(
+        positionTryRule.style,
+      );
+      if (!properties.length) {
+        continue;
+      }
+      const name = positionTryRule.name?.().text ?? '';
+      const active = positionTryRule.active?.() ?? false;
+      const source = getSourceLocation(positionTryRule);
+
+      rules.push({
+        type: 'position-try',
+        name,
+        active,
+        selector: `@position-try ${name}`,
+        ...(source ? {source} : {}),
+        properties: CssFormatter.#formatProperties(properties, matchedStyles),
+      });
+    }
+  }
+
+  static #collectRegisteredProperties(
+    rules: CascadeRule[],
+    matchedStyles: MatchedStyles,
+  ): void {
+    const registeredProperties = matchedStyles.registeredProperties?.() ?? [];
+    for (const propertyRule of registeredProperties) {
+      const style = propertyRule.style?.();
+      if (!style) {
+        continue;
+      }
+      const properties = CssFormatter.#getStyleProperties(style);
+      if (!properties.length) {
+        continue;
+      }
+      const name = propertyRule.propertyName?.() ?? '';
+      const parentRule = style.parentRule;
+      const source = parentRule
+        ? getSourceLocation(parentRule)
+        : 'CSS.registerProperty';
+
+      rules.push({
+        type: 'property',
+        name,
+        selector: `@property ${name}`,
+        ...(source ? {source} : {}),
+        properties: CssFormatter.#formatProperties(properties, matchedStyles),
+      });
+    }
+  }
+
+  static #collectFunctionRules(
+    rules: CascadeRule[],
+    matchedStyles: MatchedStyles,
+  ): void {
+    const functionRules = matchedStyles.functionRules?.() ?? [];
+    for (const functionRule of functionRules) {
+      const properties = CssFormatter.#getStyleProperties(functionRule.style);
+      if (!properties.length) {
+        continue;
+      }
+      const name = functionRule.functionName?.().text ?? '';
+      const nameWithParameters = functionRule.nameWithParameters?.() || name;
+      const source = getSourceLocation(functionRule);
+
+      rules.push({
+        type: 'function',
+        name,
+        selector: `@function ${nameWithParameters}`,
+        ...(source ? {source} : {}),
+        properties: CssFormatter.#formatProperties(properties, matchedStyles),
+      });
+    }
+  }
+
+  static #createMatchedRule(
+    rule: DevTools.CSSRule.CSSStyleRule,
+    properties: DevTools.CSSProperty.CSSProperty[],
+    matchedStyles: MatchedStyles,
+    options: CssFormatterOptions,
+  ): MatchedRule {
+    const meta = getRuleMetadata(rule, matchedStyles, options.containerDetails);
+    return {
+      type: 'matched',
+      selector: rule.selectorText(),
+      ...meta,
+      ...(rule.isUserAgent?.() ? {isUserAgent: true} : {}),
+      properties: CssFormatter.#formatProperties(properties, matchedStyles),
+    };
+  }
+
+  static #getNodeStyleSelector(
+    style: DevTools.CSSStyleDeclaration.CSSStyleDeclaration,
+    matchedStyles: MatchedStyles,
+  ): string {
+    switch (style.type) {
+      case DevTools.CSSStyleDeclaration.Type.Transition:
+        return 'transitions style';
+      case DevTools.CSSStyleDeclaration.Type.Animation: {
+        const animName = style.animationName();
+        return animName ? `${animName} animation` : 'animation style';
+      }
+      case DevTools.CSSStyleDeclaration.Type.Attributes: {
+        const node = matchedStyles.nodeForStyle(style);
+        const tag = node ? node.nodeNameInCorrectCase() : '';
+        return tag ? `${tag}[attributes style]` : '[attributes style]';
+      }
+      case DevTools.CSSStyleDeclaration.Type.Inline:
+        return 'element.style';
+      default:
+        if (style.parentRule instanceof DevTools.CSSRule.CSSStyleRule) {
+          return style.parentRule.selectorText();
+        }
+        return '';
+    }
+  }
+
+  static #createInheritedRule(
+    style: DevTools.CSSStyleDeclaration.CSSStyleDeclaration,
+    properties: DevTools.CSSProperty.CSSProperty[],
+    matchedStyles: MatchedStyles,
+    options: CssFormatterOptions,
+  ): InheritedRule | undefined {
+    const node = getParentNodeInfo(style, matchedStyles, options.resolveUid);
+    if (!node) {
+      return undefined;
+    }
+    const inheritableProps = getInheritableProperties(
+      properties,
+      matchedStyles,
+    );
+    if (!inheritableProps.length) {
+      return undefined;
+    }
+    const rule =
+      style.parentRule instanceof DevTools.CSSRule.CSSStyleRule
+        ? style.parentRule
+        : undefined;
+    const meta = getRuleMetadata(rule, matchedStyles, options.containerDetails);
+    const selector =
+      rule?.selectorText() ||
+      CssFormatter.#getNodeStyleSelector(style, matchedStyles) ||
+      undefined;
+
+    return {
+      type: 'inherited',
+      node,
+      ...(selector ? {selector} : {}),
+      ...meta,
+      properties: CssFormatter.#formatProperties(
+        inheritableProps,
+        matchedStyles,
+      ),
+    };
+  }
+
+  static #collectPseudoStyles(
+    rules: CascadeRule[],
+    matchedStyles: MatchedStyles,
+    options: CssFormatterOptions,
+  ): void {
+    const customHighlightNames =
+      matchedStyles.customHighlightPseudoNames?.() ?? [];
+    for (const highlightName of customHighlightNames) {
+      const pseudoStyles =
+        matchedStyles.customHighlightPseudoStyles?.(highlightName) ?? [];
+      CssFormatter.#collectPseudoList(
+        rules,
+        `::highlight(${highlightName})`,
+        pseudoStyles,
+        matchedStyles,
+        options,
+        true,
+      );
+    }
+
+    // Standard Pseudos (::before, ::after, ::marker, ::selection, etc.)
+    for (const pseudoType of matchedStyles.pseudoTypes?.() ?? []) {
+      const pseudoStyles = matchedStyles.pseudoStyles?.(pseudoType) ?? [];
+      CssFormatter.#collectPseudoList(
+        rules,
+        `::${pseudoType}`,
+        pseudoStyles,
+        matchedStyles,
+        options,
+        DevTools.CSSMetadata.cssMetadata().isHighlightPseudoType(pseudoType),
+      );
+    }
+  }
+
+  static #collectPseudoList(
+    rules: CascadeRule[],
+    pseudoType: string,
+    pseudoStyles: DevTools.CSSStyleDeclaration.CSSStyleDeclaration[],
+    matchedStyles: MatchedStyles,
+    options: CssFormatterOptions,
+    isHighlight = false,
+  ): void {
+    for (const style of pseudoStyles) {
+      const allProps = CssFormatter.#getStyleProperties(style);
+      if (!allProps.length) {
+        continue;
+      }
+      const node = getParentNodeInfo(style, matchedStyles, options.resolveUid);
+      const properties = node
+        ? getInheritableProperties(allProps, matchedStyles, isHighlight)
+        : allProps;
+      if (!properties.length) {
+        continue;
+      }
+      const rule =
+        style.parentRule instanceof DevTools.CSSRule.CSSStyleRule
+          ? style.parentRule
+          : undefined;
+      const meta = getRuleMetadata(
+        rule,
+        matchedStyles,
+        options.containerDetails,
+      );
+
+      rules.push({
+        type: 'pseudo',
+        pseudoType,
+        ...(node ? {node} : {}),
+        ...(rule ? {selector: rule.selectorText()} : {}),
+        ...meta,
+        properties: CssFormatter.#formatProperties(properties, matchedStyles),
+      });
+    }
+  }
+
+  static #formatProperties(
+    props: DevTools.CSSProperty.CSSProperty[],
+    matchedStyles: MatchedStyles,
+  ): StructuredCssProperty[] {
+    return props.map(p =>
+      CssFormatter.#formatStructuredProperty(p, matchedStyles),
+    );
+  }
+
+  static #formatStructuredProperty(
+    prop: DevTools.CSSProperty.CSSProperty,
+    matchedStyles: MatchedStyles,
+  ): StructuredCssProperty {
+    let status: CssPropertyStatus = 'active';
+    if (prop.parsedOk === false) {
+      status = 'invalid';
+    } else if (prop.disabled) {
+      status = 'disabled';
+    } else {
+      const state = matchedStyles.propertyState?.(prop);
+      if (state) {
+        status = PROPERTY_STATE_MAP[state] ?? 'active';
+      }
+    }
+
+    let value = prop.value;
+    const isImportant = Boolean(
+      prop.important || /\s*!\s*important$/i.test(value),
+    );
+    if (isImportant) {
+      value = value.replace(/\s*!\s*important$/i, '').trimEnd();
+    }
+
+    return {
+      name: prop.name,
+      value,
+      status,
+      ...(isImportant ? {important: true} : {}),
+    };
+  }
+
   readonly #matchedStyles: MatchedStyles;
   readonly #options: CssFormatterOptions;
   readonly #cascadeRules: readonly CascadeRule[];
@@ -261,106 +1153,12 @@ export class CssFormatter {
   ) {
     this.#matchedStyles = matchedStyles;
     this.#options = options;
-    this.#cascadeRules = cascadeRules ?? this.#collectRules();
+    this.#cascadeRules =
+      cascadeRules ?? CssFormatter.collectRules(matchedStyles, options);
   }
 
   get rules(): readonly CascadeRule[] {
     return this.#cascadeRules;
-  }
-
-  #collectRules(): CascadeRule[] {
-    const rules: CascadeRule[] = [];
-
-    for (const style of this.#matchedStyles.nodeStyles()) {
-      const properties = style.leadingProperties?.() ?? style.allProperties();
-      if (style.type === DevTools.CSSStyleDeclaration.Type.Inline) {
-        if (properties.length > 0) {
-          rules.push({
-            type: 'inline',
-            properties: this.#formatProperties(properties),
-          });
-        }
-      } else if (!this.#matchedStyles.isInherited(style)) {
-        const rule = style.parentRule;
-        if (rule instanceof DevTools.CSSRule.CSSStyleRule) {
-          const matchingSelectors = getMatchingSelectors(
-            this.#matchedStyles,
-            rule,
-          );
-          const resolvedSelector = getResolvedSelector(rule);
-          rules.push({
-            type: 'matched',
-            selector: rule.selectorText(),
-            ...(resolvedSelector ? {resolvedSelector} : {}),
-            ...(matchingSelectors ? {matchingSelectors} : {}),
-            source: getSourceLocation(rule),
-            ...(rule.isUserAgent() ? {isUserAgent: true} : {}),
-            properties: this.#formatProperties(properties),
-          });
-        }
-      } else {
-        const parentNode = this.#matchedStyles.nodeForStyle(style);
-        if (!parentNode) {
-          continue;
-        }
-        const inheritableProps = properties.filter(prop =>
-          isPropertyInherited(prop.name, this.#matchedStyles),
-        );
-        if (!inheritableProps.length) {
-          continue;
-        }
-        const rule =
-          style.parentRule instanceof DevTools.CSSRule.CSSStyleRule
-            ? style.parentRule
-            : undefined;
-        const resolvedSelector = rule ? getResolvedSelector(rule) : undefined;
-
-        rules.push({
-          type: 'inherited',
-          node: {
-            selector: parentNode.simpleSelector(),
-          },
-          selector: rule ? rule.selectorText() : undefined,
-          ...(resolvedSelector ? {resolvedSelector} : {}),
-          properties: this.#formatProperties(inheritableProps),
-        });
-      }
-    }
-
-    for (const pseudoType of this.#matchedStyles.pseudoTypes()) {
-      const allPseudoProps = this.#matchedStyles
-        .pseudoStyles(pseudoType)
-        .flatMap(ps => ps.leadingProperties?.() ?? ps.allProperties());
-      if (!allPseudoProps.length) {
-        continue;
-      }
-
-      rules.push({
-        type: 'pseudo',
-        pseudoType: `::${pseudoType}`,
-        properties: this.#formatProperties(allPseudoProps),
-      });
-    }
-
-    return rules;
-  }
-
-  #formatProperties(props: DevTools.CSSProperty.CSSProperty[]): StructuredCssProperty[] {
-    return props.map(p => this.#formatStructuredProperty(p));
-  }
-
-  #formatStructuredProperty(
-    prop: DevTools.CSSProperty.CSSProperty,
-  ): StructuredCssProperty {
-    const state = this.#matchedStyles.propertyState(prop);
-    const status =
-      (state ? PROPERTY_STATE_MAP[state] : undefined) ?? 'inactive';
-    return {
-      name: prop.name,
-      value: prop.value,
-      status,
-      ...(prop.important ? {important: true} : {}),
-    };
   }
 
   toString(): string {
@@ -374,7 +1172,9 @@ export class CssFormatter {
       return lines.join('\n');
     }
 
-    appendCssSectionsToString(lines, json);
+    const writer = new IndentedWriter(2);
+    appendCssSectionsToString(writer, json);
+    lines.push(...writer.lines());
     return lines.join('\n');
   }
 
@@ -382,9 +1182,76 @@ export class CssFormatter {
     return {
       element: {
         uid: this.#options.uid,
-        selector: this.#matchedStyles.node().simpleSelector(),
+        selector: this.#matchedStyles.node?.()?.simpleSelector() ?? '',
       },
       rules: [...this.#cascadeRules],
     };
   }
+}
+
+/**
+ * Resolves container element details for all `@container` queries impacting the node.
+ *
+ * Container queries evaluate against an ancestor container element in the DOM tree.
+ * The DevTools SDK performs an asynchronous CDP request (`CSS.getContainerForNode`)
+ * to discover the concrete container node for each query.
+ *
+ * Resolving these upfront in parallel allows `CssFormatter` methods to remain purely
+ * synchronous while providing container selectors and UIDs in headers and comments.
+ */
+export async function resolveContainerQueries(
+  matchedStyles: MatchedStyles,
+  resolveUid?: UidResolver,
+): Promise<Map<ContainerQuery, ResolvedContainerDetails>> {
+  const resolved = new Map<ContainerQuery, ResolvedContainerDetails>();
+  const targetNode = matchedStyles.node?.();
+  if (!targetNode) {
+    return resolved;
+  }
+  const queries = new Set<ContainerQuery>();
+
+  const allStyles = [...(matchedStyles.nodeStyles?.() ?? [])];
+  for (const name of matchedStyles.customHighlightPseudoNames?.() ?? []) {
+    allStyles.push(
+      ...(matchedStyles.customHighlightPseudoStyles?.(name) ?? []),
+    );
+  }
+  for (const type of matchedStyles.pseudoTypes?.() ?? []) {
+    allStyles.push(...(matchedStyles.pseudoStyles?.(type) ?? []));
+  }
+  for (const style of allStyles) {
+    if (
+      style.parentRule instanceof DevTools.CSSRule.CSSStyleRule &&
+      style.parentRule.containerQueries
+    ) {
+      for (const query of style.parentRule.containerQueries) {
+        queries.add(query);
+      }
+    }
+  }
+
+  await Promise.all(
+    [...queries].map(async query => {
+      try {
+        const container = await query.getContainerForNode?.(targetNode.id);
+        if (!container) {
+          return;
+        }
+        const containerNode = container.containerNode;
+        const selector = containerNode.simpleSelector();
+        const uid = resolveUid?.(containerNode.backendNodeId());
+
+        resolved.set(query, {
+          container: {
+            ...(uid ? {uid} : {}),
+            selector,
+          },
+        });
+      } catch {
+        // Ignore container query resolution errors
+      }
+    }),
+  );
+
+  return resolved;
 }

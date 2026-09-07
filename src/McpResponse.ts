@@ -9,8 +9,10 @@ import type {WebMCPTool} from 'puppeteer-core';
 import type {ParsedArguments} from './config/mcp-options.js';
 import {ConsoleFormatter} from './formatters/ConsoleFormatter.js';
 import {
+  type CascadeRule,
   CssFormatter,
   type CssFormatterOptions,
+  resolveContainerQueries,
 } from './formatters/CssFormatter.js';
 import {
   HeapSnapshotFormatter,
@@ -121,7 +123,7 @@ export class McpResponse implements Response {
   };
   #cssStylesData?: {
     matchedStyles: MatchedStyles;
-    options: CssFormatterOptions;
+    options: CssFormatterOptions & PaginationOptions;
   };
   #listExtensions?: boolean;
   #listThirdPartyDeveloperTools?: boolean;
@@ -254,7 +256,7 @@ export class McpResponse implements Response {
 
   setIncludeCssStyles(
     matchedStyles: MatchedStyles,
-    options: CssFormatterOptions,
+    options: CssFormatterOptions & PaginationOptions,
   ): void {
     this.#cssStylesData = {
       matchedStyles,
@@ -1413,28 +1415,46 @@ Call ${handleDialog.name} to handle it before continuing.`);
     }
 
     if (this.#cssStylesData) {
-      let formatter = new CssFormatter(
+      const resolveUid = (backendNodeId: number) =>
+        this.#page?.textSnapshot?.resolveCdpElementId(backendNodeId);
+
+      const containerDetails = await resolveContainerQueries(
         this.#cssStylesData.matchedStyles,
-        this.#cssStylesData.options,
+        resolveUid,
       );
+
+      const options = {
+        ...this.#cssStylesData.options,
+        resolveUid,
+        containerDetails,
+      };
+
+      const allRules = CssFormatter.collectRules(
+        this.#cssStylesData.matchedStyles,
+        options,
+      );
+
+      let rules: readonly CascadeRule[] = allRules;
 
       const hasPagination =
         this.#cssStylesData.options.pageSize !== undefined ||
         this.#cssStylesData.options.pageIdx !== undefined;
 
-      if (hasPagination && formatter.rules.length > 0) {
+      if (hasPagination && allRules.length > 0) {
         const paginationData = this.#dataWithPagination(
-          formatter.rules,
+          allRules,
           this.#cssStylesData.options,
         );
         structuredContent.pagination = paginationData.pagination;
         response.push(...paginationData.info);
-        formatter = new CssFormatter(
-          this.#cssStylesData.matchedStyles,
-          this.#cssStylesData.options,
-          paginationData.items,
-        );
+        rules = paginationData.items;
       }
+
+      const formatter = new CssFormatter(
+        this.#cssStylesData.matchedStyles,
+        options,
+        rules,
+      );
 
       structuredContent.matchedStyles = formatter.toJSON();
       if (compactEncode) {
