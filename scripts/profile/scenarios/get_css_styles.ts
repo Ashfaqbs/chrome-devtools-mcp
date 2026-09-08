@@ -9,7 +9,7 @@ import {uidsFromSnapshotResult} from '../utils.ts';
 
 export function getNumIterations(): ScenarioIterations {
   return {
-    iterations: 5,
+    iterations: 10,
     warmupIterations: 10,
   };
 }

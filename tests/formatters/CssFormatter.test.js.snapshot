@@ -161,6 +161,62 @@ Styles for button (uid: "elem-kf"):
   }
 `;
 
+exports[`CssFormatter > formats @layer, @media, @supports, and @starting-style ancestor rules toJSON 1`] = `
+{
+  "element": {
+    "uid": "btn-1",
+    "selector": "button"
+  },
+  "rules": [
+    {
+      "type": "matched",
+      "selector": ".test-btn",
+      "ancestors": [
+        {
+          "type": "layer",
+          "name": "base"
+        },
+        {
+          "type": "media",
+          "query": "(min-width: 500px)"
+        },
+        {
+          "type": "supports",
+          "query": "(display: flex)"
+        },
+        {
+          "type": "starting-style"
+        }
+      ],
+      "source": "<style>",
+      "properties": [
+        {
+          "name": "display",
+          "value": "flex",
+          "status": "active"
+        }
+      ]
+    }
+  ]
+}
+`;
+
+exports[`CssFormatter > formats @layer, @media, @supports, and @starting-style ancestor rules toString 1`] = `
+Styles for button (uid: "btn-1"):
+
+  @layer base {
+    @media (min-width: 500px) {
+      @supports (display: flex) {
+        @starting-style {
+          .test-btn (<style>) {
+            display: flex;
+          }
+        }
+      }
+    }
+  }
+`;
+
 exports[`CssFormatter > formats @navigation ancestor rule toJSON 1`] = `
 {
   "element": {
@@ -270,6 +326,45 @@ Styles for button (uid: "elem-prop"):
     syntax: "<length>";
     inherits: true;
     initial-value: 10px;
+  }
+`;
+
+exports[`CssFormatter > formats @scope ancestor rule toJSON 1`] = `
+{
+  "element": {
+    "uid": "item-1",
+    "selector": "button"
+  },
+  "rules": [
+    {
+      "type": "matched",
+      "selector": ".scoped-item",
+      "ancestors": [
+        {
+          "type": "scope",
+          "query": "(:root)"
+        }
+      ],
+      "source": "<style>",
+      "properties": [
+        {
+          "name": "color",
+          "value": "blue",
+          "status": "active"
+        }
+      ]
+    }
+  ]
+}
+`;
+
+exports[`CssFormatter > formats @scope ancestor rule toString 1`] = `
+Styles for button (uid: "item-1"):
+
+  @scope (:root) {
+    .scoped-item (<style>) {
+      color: blue;
+    }
   }
 `;
 

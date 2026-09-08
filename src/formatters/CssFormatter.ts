@@ -249,18 +249,6 @@ function getFilenameFromUrl(sheetUrl: string): string {
   return '(index)';
 }
 
-interface StylePositionHeader {
-  lineNumberInSource: (line: number) => number;
-}
-
-function getStyleRangeLocationSuffix(
-  header: StylePositionHeader,
-  range: {startLine: number; startColumn: number},
-): string {
-  const lineNum = header.lineNumberInSource(range.startLine) + 1;
-  return `:${lineNum}`;
-}
-
 /**
  * Resolves the human-readable source location
  *
@@ -285,14 +273,12 @@ function getSourceLocation(rule: DevTools.CSSRule.CSSRule): string {
 
   let locSuffix = '';
   if (rule instanceof DevTools.CSSRule.CSSStyleRule) {
-    const col = rule.columnNumberInSource(0);
-    if (col !== undefined) {
-      const lineNum = rule.lineNumberInSource(0) + 1;
-      locSuffix = `:${lineNum}`;
+    const lineNum = rule.lineNumberInSource(0);
+    if (lineNum >= 0) {
+      locSuffix = `:${lineNum + 1}`;
     }
-  }
-  if (!locSuffix && rule.header && rule.style?.range) {
-    locSuffix = getStyleRangeLocationSuffix(rule.header, rule.style.range);
+  } else if (rule.header && rule.style?.range) {
+    locSuffix = `:${rule.header.lineNumberInSource(rule.style.range.startLine) + 1}`;
   }
 
   const sheetUrl = rule.sourceURL;
@@ -826,7 +812,7 @@ export class CssFormatter {
   ): void {
     const keyframesRules = matchedStyles.keyframes?.() ?? [];
     for (const keyframesRule of keyframesRules) {
-      const name = keyframesRule.name?.().text ?? '';
+      const name = keyframesRule.name?.()?.text ?? '';
       const rawKeyframes = keyframesRule.keyframes?.() ?? [];
 
       const steps: KeyframeStep[] = [];
@@ -837,7 +823,7 @@ export class CssFormatter {
         if (!properties.length) {
           continue;
         }
-        const keyText = keyframe.key?.().text ?? '';
+        const keyText = keyframe.key?.()?.text ?? '';
         const source = getSourceLocation(keyframe);
         if (!parentSource && source) {
           parentSource = source;
@@ -876,7 +862,7 @@ export class CssFormatter {
       if (!properties.length) {
         continue;
       }
-      const name = positionTryRule.name?.().text ?? '';
+      const name = positionTryRule.name?.()?.text ?? '';
       const active = positionTryRule.active?.() ?? false;
       const source = getSourceLocation(positionTryRule);
 
@@ -931,7 +917,7 @@ export class CssFormatter {
       if (!properties.length) {
         continue;
       }
-      const name = functionRule.functionName?.().text ?? '';
+      const name = functionRule.functionName?.()?.text ?? '';
       const nameWithParameters = functionRule.nameWithParameters?.() || name;
       const source = getSourceLocation(functionRule);
 

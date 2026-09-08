@@ -717,9 +717,9 @@ export class McpPage implements ContextPage {
       const nodeMap = await dom.pushNodesByBackendIdsToFrontend(
         new Set([backendNodeId]),
       );
-      const node = nodeMap?.get(backendNodeId);
-      if (node) {
-        domNode = node;
+      const frontendNode = nodeMap?.get(backendNodeId);
+      if (frontendNode) {
+        domNode = frontendNode;
         cssModel = dom.target().model(DevTools.CSSModel.CSSModel);
         break;
       }

@@ -1440,7 +1440,7 @@ Call ${handleDialog.name} to handle it before continuing.`);
         this.#cssStylesData.options.pageSize !== undefined ||
         this.#cssStylesData.options.pageIdx !== undefined;
 
-      if (hasPagination && allRules.length > 0) {
+      if (hasPagination) {
         const paginationData = this.#dataWithPagination(
           allRules,
           this.#cssStylesData.options,
